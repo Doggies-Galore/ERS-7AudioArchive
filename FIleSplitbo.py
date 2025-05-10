@@ -2,27 +2,18 @@ import os
 import numpy as np
 from scipy.io import wavfile
 
-def is_60hz_tone(segment, sample_rate, freq_target=60, tolerance=5, dominance_ratio=0.25):
-    # Windowed FFT
+def is_60hz_tone(segment, sample_rate, freq_target=60, tolerance=5, dominance_ratio=0.13):
     windowed = segment * np.hanning(len(segment))
     fft = np.fft.rfft(windowed)
     freqs = np.fft.rfftfreq(len(segment), 1 / sample_rate)
-
-    # Calculate magnitude spectrum
     magnitude = np.abs(fft)
     total_energy = np.sum(magnitude)
-
-    # Find indices within the frequency tolerance range (e.g., 55–65Hz)
     band = (freqs >= (freq_target - tolerance)) & (freqs <= (freq_target + tolerance))
     band_energy = np.sum(magnitude[band])
-
-    # Require that 60Hz accounts for the majority of spectral energy
-    if total_energy == 0:
-        return False
-    return (band_energy / total_energy) > dominance_ratio
+    return (total_energy > 0) and (band_energy / total_energy > dominance_ratio)
 
 def has_significant_audio(segment, threshold=500):
-    # Check if the segment has significant audio based on RMS
+    """Checks if a segment contains significant audio based on RMS."""
     rms = np.sqrt(np.mean(segment.astype(float)**2))
     return rms > threshold
 
@@ -47,47 +38,22 @@ def split_on_tone(filename, tone_duration=0.5, tone_freq=60, threshold=0.02, min
         if not deduped or m - deduped[-1] > tone_length_samples:
             deduped.append(m)
 
-    # Split between tone midpoints with padding
+    # Split between tone midpoints
     parts = []
     prev = 0
     for idx in deduped:
         mid = idx + tone_length_samples // 2
-        start = prev
-        end = mid
-
-        # Ensure minimum segment duration
-        if end - start < min_segment_samples:
-            # Extend the end if possible
-            end = start + min_segment_samples
-            if end > len(audio):
-                end = len(audio)
-
-        # Check for significant audio near the boundaries
-        pad_start = start
-        pad_end = end
-        pad_size = int(0.1 * sample_rate)  # 0.1 second padding
-
-        if start - pad_size >= 0:
-            pre_segment = audio[start - pad_size:start]
-            if not has_significant_audio(pre_segment):
-                pad_start = start - pad_size
-
-        if end + pad_size <= len(audio):
-            post_segment = audio[end:end + pad_size]
-            if not has_significant_audio(post_segment):
-                pad_end = end + pad_size
-
-        parts.append((pad_start, pad_end))
+        parts.append((prev, mid))
         prev = mid
-    # Add the last segment
-    if prev < len(audio):
-        parts.append((prev, len(audio)))
+    parts.append((prev, len(audio)))  # last part
 
     # Load action names
     with open("Actions.txt", "r", encoding="utf-8") as f:
         action_names = [line.strip() for line in f if line.strip()]
 
     # Ensure enough action names
+    if len(action_names) < len(parts):
+        raise ValueError("Not enough action names in the Actions.txt file!")
 
     # Output folder
     out_folder = "./SegmentedAudio"
@@ -95,9 +61,19 @@ def split_on_tone(filename, tone_duration=0.5, tone_freq=60, threshold=0.02, min
 
     # Save segments with action-based filenames
     for i, (start, end) in enumerate(parts):
+        # Adjust start and end to prevent overlap
+        if i > 0:
+            prev_end = parts[i - 1][1]
+            if start < prev_end:
+                start = prev_end
+        if i < len(parts) - 1:
+            next_start = parts[i + 1][0]
+            if end > next_start:
+                end = next_start
+
         segment = audio[start:end]
         action = action_names[i].replace(" ", "_")
-        filename = f"{i+1:02d}_{action}.wav"
+        filename = f"{action}.wav"
         out_path = os.path.join(out_folder, filename)
         wavfile.write(out_path, sample_rate, segment.astype(np.int16))
         print(f"Saved: {out_path}")
