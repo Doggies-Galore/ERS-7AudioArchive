@@ -2,7 +2,7 @@ import os
 import numpy as np
 from scipy.io import wavfile
 
-def is_60hz_tone(segment, sample_rate, freq_target=60, tolerance=5, dominance_ratio=0.15):
+def is_60hz_tone(segment, sample_rate, freq_target=60, tolerance=5, dominance_ratio=0.25):
     # Windowed FFT
     windowed = segment * np.hanning(len(segment))
     fft = np.fft.rfft(windowed)
@@ -88,8 +88,6 @@ def split_on_tone(filename, tone_duration=0.5, tone_freq=60, threshold=0.02, min
         action_names = [line.strip() for line in f if line.strip()]
 
     # Ensure enough action names
-    if len(action_names) < len(parts):
-        raise ValueError("Not enough action names in Actions.txt for the number of detected segments.")
 
     # Output folder
     out_folder = "./SegmentedAudio"
